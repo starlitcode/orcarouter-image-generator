@@ -157,6 +157,11 @@ button {
   display: none !important;
 }
 
+/* Hover effects sit inside (hover: hover) blocks, each kept where its rule
+   was so the cascade order is unchanged. On a touch screen a tap leaves :hover
+   applied until the next tap elsewhere, which looks like a stuck highlight. The
+   :active styles still answer every tap. */
+
 /* ---------- top bar ---------- */
 
 .topbar {
@@ -231,8 +236,10 @@ button {
   transition: border-color var(--fast) var(--ease), background-color var(--fast) var(--ease);
 }
 
-.key-pill:hover {
-  border-color: var(--accent-line);
+@media (hover: hover) {
+  .key-pill:hover {
+    border-color: var(--accent-line);
+  }
 }
 
 .key-pill[data-state='none'],
@@ -269,9 +276,11 @@ button {
   transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
 }
 
-.icon-btn:hover {
-  background: var(--surface-3);
-  color: var(--text);
+@media (hover: hover) {
+  .icon-btn:hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
 }
 
 .icon-btn:active {
@@ -304,8 +313,10 @@ button {
   color: var(--on-accent);
 }
 
-.primary:hover {
-  background: var(--accent-fill-hover);
+@media (hover: hover) {
+  .primary:hover {
+    background: var(--accent-fill-hover);
+  }
 }
 
 .primary:active,
@@ -324,9 +335,11 @@ button {
   color: var(--text);
 }
 
-.ghost:hover {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
+@media (hover: hover) {
+  .ghost:hover {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+  }
 }
 
 .primary.small,
@@ -340,9 +353,11 @@ button {
   color: var(--danger);
 }
 
-.ghost.danger:hover {
-  border-color: var(--danger);
-  background: transparent;
+@media (hover: hover) {
+  .ghost.danger:hover {
+    border-color: var(--danger);
+    background: transparent;
+  }
 }
 
 .link {
@@ -486,8 +501,10 @@ kbd {
   transition: border-color var(--fast) var(--ease), background-color var(--fast) var(--ease);
 }
 
-.model-card:hover {
-  border-color: var(--line-strong);
+@media (hover: hover) {
+  .model-card:hover {
+    border-color: var(--line-strong);
+  }
 }
 
 .model-card[aria-checked='true'] {
@@ -537,10 +554,12 @@ kbd {
   transition: border-color var(--fast) var(--ease);
 }
 
-.prompt:hover,
-.input:hover,
-.select:hover {
-  border-color: var(--accent-line);
+@media (hover: hover) {
+  .prompt:hover,
+  .input:hover,
+  .select:hover {
+    border-color: var(--accent-line);
+  }
 }
 
 .prompt:focus-visible,
@@ -606,9 +625,11 @@ kbd {
   transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
 }
 
-.seg:hover:not(:disabled) {
-  background: var(--surface-3);
-  color: var(--text);
+@media (hover: hover) {
+  .seg:hover:not(:disabled) {
+    background: var(--surface-3);
+    color: var(--text);
+  }
 }
 
 .seg[aria-pressed='true'] {
@@ -693,9 +714,11 @@ kbd {
   color: #fff;
 }
 
-.ref-remove:hover {
-  background: rgba(0, 0, 0, 0.85);
-  color: #fff;
+@media (hover: hover) {
+  .ref-remove:hover {
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+  }
 }
 
 @media (pointer: coarse) {
@@ -720,7 +743,13 @@ kbd {
   transition: border-color var(--fast) var(--ease), background-color var(--fast) var(--ease);
 }
 
-.dropzone:hover,
+@media (hover: hover) {
+  .dropzone:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+}
+
 .rail.dragging .dropzone {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -760,9 +789,11 @@ kbd {
   transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
 }
 
-.ratio-chip:hover {
-  background: var(--surface-3);
-  color: var(--text);
+@media (hover: hover) {
+  .ratio-chip:hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
 }
 
 .ratio-frame {
@@ -1388,8 +1419,10 @@ kbd {
   transition: border-color var(--fast) var(--ease), background-color var(--fast) var(--ease);
 }
 
-.mode:hover {
-  border-color: var(--line-strong);
+@media (hover: hover) {
+  .mode:hover {
+    border-color: var(--line-strong);
+  }
 }
 
 .mode:has(input:checked) {
