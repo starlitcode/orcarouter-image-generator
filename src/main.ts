@@ -101,14 +101,21 @@ function button(label: string | Node, attrs: Record<string, string | boolean | u
 }
 
 function iconButton(name: IconName, label: string, onClick: (e: MouseEvent) => void, cls = 'icon-btn'): HTMLButtonElement {
-  const b = button(icon(name), { class: cls, 'aria-label': label, title: label }, onClick)
-  return b
+  return button(icon(name), { class: cls, 'aria-label': label, title: label }, onClick)
+}
+
+// On a phone, focusing a field opens the keyboard over the dialog, so fields
+// are focused for the person only where there is a real keyboard.
+const coarsePointer = window.matchMedia('(pointer: coarse)')
+function focusOnDesktop(el: HTMLInputElement, selectText = false): void {
+  if (coarsePointer.matches) return
+  el.focus()
+  if (selectText) el.select()
 }
 
 // A row of mutually exclusive buttons with aria-pressed.
-interface Segmented<T extends string> {
+interface Segmented {
   el: HTMLElement
-  set(value: T): void
   setDisabled(disabled: boolean): void
 }
 
@@ -117,7 +124,7 @@ function segmented<T extends string>(
   options: readonly { value: T; text: string; title?: string }[],
   value: T,
   onChange: (v: T) => void,
-): Segmented<T> {
+): Segmented {
   const el = h('div', { class: 'segmented', role: 'group', 'aria-label': label })
   const buttons = options.map((o) => {
     const b = button(o.text, { class: 'seg', title: o.title, 'data-value': o.value }, () => {
@@ -131,7 +138,6 @@ function segmented<T extends string>(
   set(value)
   return {
     el,
-    set,
     setDisabled: (d) => buttons.forEach((b) => (b.disabled = d)),
   }
 }
@@ -368,22 +374,45 @@ function renderRefs(): void {
 const ratioGrid = h('div', { class: 'ratio-grid', role: 'radiogroup', 'aria-label': 'Aspect ratio' })
 const resolutionSlot = h('div', { class: 'resolution' })
 const sizeReadout = h('p', { class: 'hint size-readout' })
-const customInput = h('input', {
-  id: 'custom-size',
-  class: 'input mono',
-  inputmode: 'numeric',
-  autocomplete: 'off',
-  spellcheck: 'false',
-  placeholder: '1536x1024',
-  'aria-describedby': 'custom-size-errors',
-})
+// Two number fields with the x drawn between them, so a phone's number pad is
+// enough. A whole size pasted into either field, like 1536x1024, is split.
+const sizeInput = (id: string, label: string, placeholder: string): HTMLInputElement =>
+  h('input', {
+    id,
+    class: 'input mono',
+    inputmode: 'numeric',
+    pattern: '[0-9]*',
+    maxlength: 9,
+    autocomplete: 'off',
+    spellcheck: 'false',
+    placeholder,
+    'aria-label': label,
+    'aria-describedby': 'custom-size-errors',
+  })
+const customW = sizeInput('custom-w', 'Width in pixels', '1536')
+const customH = sizeInput('custom-h', 'Height in pixels', '1024')
+const customRow = h('div', { class: 'size-row' }, customW, h('span', { class: 'times', 'aria-hidden': 'true' }, 'x'), customH)
 const customErrors = h('ul', { class: 'hint warn errors', id: 'custom-size-errors' })
-customInput.addEventListener('input', () => {
-  prefs.gptCustom = customInput.value
+
+function setCustom(size: Size | null): void {
+  customW.value = size ? String(size.width) : ''
+  customH.value = size ? String(size.height) : ''
+}
+
+function onCustomInput(): void {
+  for (const input of [customW, customH]) {
+    const whole = parseSize(input.value)
+    if (whole) setCustom(whole)
+    else if (/\D/.test(input.value)) input.value = input.value.replace(/\D/g, '')
+  }
+  prefs.gptCustom = `${customW.value}x${customH.value}`
   persist()
+  markRatios()
   renderSizeReadout()
   validate()
-})
+}
+customW.addEventListener('input', onCustomInput)
+customH.addEventListener('input', onCustomInput)
 
 function ratioChip(ratio: Ratio | null, checked: boolean, onPick: () => void): HTMLButtonElement {
   const label = ratio ? ratioLabel(ratio) : 'Auto'
@@ -399,6 +428,7 @@ function ratioChip(ratio: Ratio | null, checked: boolean, onPick: () => void): H
   const b = button(h('span', { class: 'ratio-frame' }, shape), {
     class: 'ratio-chip',
     role: 'radio',
+    'data-ratio': ratio ? label : 'auto',
     'aria-checked': String(checked),
     'aria-label': ratio ? `Aspect ratio ${label}` : 'Automatic aspect ratio',
   }, onPick)
@@ -406,11 +436,39 @@ function ratioChip(ratio: Ratio | null, checked: boolean, onPick: () => void): H
   return b
 }
 
+const customMode = (model: Model): boolean => model.family === 'gpt' && prefs.gptSizeMode === 'custom'
+
+// In Custom mode the typed size decides the shape, so the chip that matches it
+// is the one marked.
+function ratioIsChecked(model: Model, r: Ratio | null): boolean {
+  if (customMode(model)) {
+    const size = parseSize(prefs.gptCustom)
+    return !!r && !!size && Math.abs(size.width / size.height - r.w / r.h) < 0.01
+  }
+  const chosen = selectedRatio(model)
+  return r === null ? chosen === null : !!chosen && chosen.w === r.w && chosen.h === r.h
+}
+
+function markRatios(): void {
+  const model = currentModel()
+  for (const chip of ratioGrid.querySelectorAll<HTMLElement>('.ratio-chip')) {
+    const r = parseRatio(chip.dataset.ratio ?? '')
+    chip.setAttribute('aria-checked', String(ratioIsChecked(model, r)))
+  }
+}
+
 function renderShape(): void {
   const model = currentModel()
   const ratio = selectedRatio(model)
+  const custom = customMode(model)
   clear(ratioGrid)
   const pick = (r: Ratio | null): void => {
+    if (custom && r) {
+      // A shape picked in Custom mode fills in its 1K size as a starting point.
+      setCustom(gptSizeFor(r, '1K'))
+      onCustomInput()
+      return
+    }
     const text = r ? ratioLabel(r) : 'auto'
     if (model.family === 'gemini') prefs.geminiRatio = text
     else prefs.gptRatio = text
@@ -418,8 +476,10 @@ function renderShape(): void {
     renderShape()
     validate()
   }
-  ratioGrid.append(ratioChip(null, ratio === null, () => pick(null)))
-  for (const r of model.ratios) ratioGrid.append(ratioChip(r, !!ratio && r.w === ratio.w && r.h === ratio.h, () => pick(r)))
+  // Auto has no size to fill in, so Custom mode leaves it out.
+  if (!custom) ratioGrid.append(ratioChip(null, false, () => pick(null)))
+  for (const r of model.ratios) ratioGrid.append(ratioChip(r, false, () => pick(r)))
+  markRatios()
 
   clear(resolutionSlot)
   if (model.family === 'gemini') {
@@ -443,9 +503,13 @@ function renderShape(): void {
       validate()
     })
     resolutionSlot.append(seg.el)
-    if (prefs.gptSizeMode === 'custom') {
-      customInput.value = prefs.gptCustom
-      resolutionSlot.append(field('Width x height', customInput, undefined, 'custom-size'), customErrors)
+    if (custom) {
+      setCustom(parseSize(prefs.gptCustom))
+      resolutionSlot.append(
+        h('div', { class: 'field' }, h('span', { class: 'label', id: 'custom-size-label' }, 'Width x height'), customRow),
+        customErrors,
+        h('p', { class: 'hint' }, 'Tap a shape above to fill in a starting size.'),
+      )
     } else if (ratio === null) {
       seg.setDisabled(true)
     }
@@ -470,7 +534,7 @@ function renderSizeReadout(): void {
     return
   }
   if (size === null) {
-    sizeReadout.textContent = 'Type a size like 1536x1024.'
+    sizeReadout.textContent = 'Type a width and a height.'
     return
   }
   const errors = gptSizeErrors(size)
@@ -596,7 +660,7 @@ function blockReason(): string {
   if (idError) return `Model id: ${idError}`
   if (model.family === 'gpt') {
     const size = gptSize(model)
-    if (size === null) return 'Type a custom size like 1536x1024.'
+    if (size === null) return 'Type a width and a height for the custom size.'
     if (size !== 'auto') {
       const errors = gptSizeErrors(size)
       if (errors.length) return `Size: ${errors[0]}`
@@ -680,7 +744,6 @@ interface Tile {
 }
 
 interface Batch {
-  id: string
   el: HTMLElement
   meta: HTMLElement
   tiles: Tile[]
@@ -765,11 +828,10 @@ function fillTile(batch: Batch, tile: Tile, index: number, out: OutImage, text: 
   const dims = h('span', { class: 'mono dim' })
   const openBtn = button(img, { class: 'tile-open', 'aria-label': `Open image ${index + 1}` }, () => openViewer(batch, tile, index, text))
   const actions = h('div', { class: 'tile-actions' })
-  if (out.blob) {
-    actions.append(
-      h('a', { class: 'icon-btn', href: url, download: filename(batch, index, out.format), 'aria-label': `Download image ${index + 1}`, title: 'Download' }, icon('download')),
-      iconButton('reuse', 'Use as reference', () => void useAsRef(out.blob!, index)),
-    )
+  const blob = out.blob
+  if (blob) {
+    actions.append(h('a', { class: 'icon-btn', href: url, download: filename(batch, index, out.format), 'aria-label': `Download image ${index + 1}`, title: 'Download' }, icon('download')))
+    if (canReuse(out.format)) actions.append(iconButton('reuse', 'Use as reference', () => void useAsRef(blob, out.format, index)))
   } else {
     actions.append(h('a', { class: 'icon-btn', href: url, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Open the provider link', title: 'Open link' }, icon('expand')))
   }
@@ -798,13 +860,15 @@ function failTile(tile: Tile, error: FriendlyError, retry: (() => void) | null):
   tile.frame.replaceChildren(body)
 }
 
-async function useAsRef(blob: Blob, index: number): Promise<void> {
+// Reference uploads take PNG, JPEG and WebP only.
+const canReuse = (format: OutFormat): boolean => format === 'png' || format === 'jpeg' || format === 'webp'
+
+async function useAsRef(blob: Blob, format: OutFormat, index: number): Promise<void> {
   if (refs.length + refsLoading >= MAX_REFS_ANY) {
     toast(`Already at ${MAX_REFS_ANY} reference images.`, 'warn')
     return
   }
-  const type = blob.type
-  const file = new File([blob], `generated-${index + 1}.${type === 'image/jpeg' ? 'jpg' : type === 'image/webp' ? 'webp' : 'png'}`, { type })
+  const file = new File([blob], `generated-${index + 1}.${extensionForFormat(format)}`, { type: blob.type })
   await addFiles([file])
   if (window.matchMedia('(max-width: 899px)').matches) refGrid.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
@@ -818,7 +882,6 @@ function removeBatch(batch: Batch): void {
 }
 
 let batches: Batch[] = []
-let batchCounter = 0
 
 function renderBatchMeta(batch: Batch): void {
   const done = batch.tiles.every((t) => t.done)
@@ -875,7 +938,6 @@ async function generate(): Promise<void> {
   const note = h('p', { class: 'batch-note', hidden: true })
   const batchEl = h('article', { class: 'batch', 'aria-busy': 'true' })
   const batch: Batch = {
-    id: `b${++batchCounter}`,
     el: batchEl,
     meta,
     tiles,
@@ -914,15 +976,23 @@ async function generate(): Promise<void> {
   statusLine.textContent = ''
   if (window.matchMedia('(max-width: 899px)').matches) batchEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  const onOutcome = (outcome: Outcome, indexes: number[], retry: () => void): void => {
+  const onOutcome = (outcome: Outcome, indexes: number[], rerun: (indexes: number[]) => Promise<void>): void => {
+    const retry = (): void => retryTiles(batch, indexes, () => rerun(indexes))
     if (outcome.ok) {
       if (outcome.costUsd !== null) batch.costs.push(outcome.costUsd)
       if (outcome.creditsLow) creditsLowNotice()
+      const missing = indexes.filter((_, k) => !outcome.images[k])
       indexes.forEach((i, k) => {
         const img = outcome.images[k]
         if (img) fillTile(batch, tiles[i]!, i, img, outcome.text)
-        else failTile(tiles[i]!, { title: 'Fewer images came back', detail: `The provider returned ${outcome.images.length} of ${indexes.length}.`, final: false, status: 0, code: '', requestId: outcome.requestId, upstreamMessage: '' }, retry)
       })
+      if (missing.length) {
+        // Only the empty tiles are retried, so the images that did come back stay.
+        const retryMissing = (): void => retryTiles(batch, missing, () => rerun(missing))
+        for (const i of missing) {
+          failTile(tiles[i]!, { title: 'Fewer images came back', detail: `The provider returned ${outcome.images.length} of ${indexes.length}.`, final: false, status: 0, code: '', requestId: outcome.requestId, upstreamMessage: '' }, retryMissing)
+        }
+      }
       if (outcome.text && model.family === 'gemini') showNote(batch, outcome.text)
     } else {
       if (outcome.error.status === 401) vault.lock()
@@ -946,7 +1016,7 @@ async function generate(): Promise<void> {
           tile.waiting = left
           renderTileStatus(tile)
         },
-      ).then((outcome) => onOutcome(outcome, [i], () => retryTiles(batch, [i], () => runOne(i))))
+      ).then((outcome) => onOutcome(outcome, [i], (again) => Promise.all(again.map(runOne)).then(() => undefined)))
     }
     for (let i = 0; i < count; i++) tasks.push(runOne(i))
   } else {
@@ -968,7 +1038,7 @@ async function generate(): Promise<void> {
           tiles[i]!.waiting = left
           renderTileStatus(tiles[i]!)
         }
-      }).then((outcome) => onOutcome(outcome, indexes, () => retryTiles(batch, indexes, () => runBatch(indexes))))
+      }).then((outcome) => onOutcome(outcome, indexes, runBatch))
     }
     tasks.push(runBatch(all))
   }
@@ -991,6 +1061,7 @@ function retryTiles(batch: Batch, indexes: number[], run: () => Promise<void>): 
   batch.controller = new AbortController()
   for (const i of indexes) {
     const old = batch.tiles[i]!
+    if (old.image?.blob) URL.revokeObjectURL(old.image.url)
     const fresh = makeTile({ w: 1, h: 1 })
     fresh.frame.style.aspectRatio = old.frame.style.aspectRatio
     old.el.replaceWith(fresh.el)
@@ -1034,7 +1105,11 @@ function creditsLowNotice(): void {
 // ---------- dialogs ----------
 
 // Opens with a fade. Closing marks it, waits for the fade, then closes.
+// Reopening during the fade cancels the pending close.
+const closeTimers = new WeakMap<HTMLDialogElement, number>()
+
 function showDialog(d: HTMLDialogElement): void {
+  window.clearTimeout(closeTimers.get(d))
   d.classList.remove('closing')
   if (!d.open) d.showModal()
 }
@@ -1048,7 +1123,7 @@ function closeDialog(d: HTMLDialogElement): void {
   }
   const reduce = root.dataset.motion === 'reduce' || window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (reduce) done()
-  else window.setTimeout(done, 130)
+  else closeTimers.set(d, window.setTimeout(done, 130))
 }
 
 function wireDialog(d: HTMLDialogElement): void {
@@ -1194,20 +1269,20 @@ function renderKeyEntry(): void {
     if (!check.ok) {
       keyMsg.textContent = check.error
       keyMsg.classList.add('warn')
-      keyInput.focus()
+      focusOnDesktop(keyInput)
       return
     }
     if (modeSave.checked) {
       if (passA.value.length < vault.MIN_PASSPHRASE) {
         passMsg.hidden = false
         passMsg.textContent = `Use at least ${vault.MIN_PASSPHRASE} characters. A short passphrase can be guessed by anyone who copies the saved data.`
-        passA.focus()
+        focusOnDesktop(passA)
         return
       }
       if (passA.value !== passB.value) {
         passMsg.hidden = false
         passMsg.textContent = 'The two passphrases do not match.'
-        passB.focus()
+        focusOnDesktop(passB)
         return
       }
       working(true, 'Encrypting')
@@ -1260,7 +1335,7 @@ function renderKeyEntry(): void {
       } catch (e) {
         unlockMsg.hidden = false
         unlockMsg.textContent = e instanceof Error ? e.message : 'Could not unlock.'
-        unlockInput.select()
+        focusOnDesktop(unlockInput, true)
       } finally {
         unlockBtn.disabled = false
         unlockBtn.textContent = 'Unlock'
@@ -1314,7 +1389,8 @@ function renderKeyEntry(): void {
     body,
     h('div', { class: 'dialog-actions' }, button('Cancel', { class: 'ghost' }, () => closeDialog(keyDialog)), submitBtn),
   )
-  window.setTimeout(() => (saved ? document.getElementById('unlock-pass') : keyInput)?.focus(), 30)
+  const first = document.getElementById(saved ? 'unlock-pass' : 'api-key')
+  if (first instanceof HTMLInputElement) window.setTimeout(() => focusOnDesktop(first), 30)
 }
 
 // ---------- settings dialog ----------
@@ -1395,13 +1471,14 @@ function openViewer(batch: Batch, tile: Tile, index: number, text: string): void
   clear(viewer)
   const actions = h('div', { class: 'viewer-actions' })
   if (img.blob) {
-    actions.append(
-      h('a', { class: 'primary small', href: img.url, download: filename(batch, index, img.format) }, icon('download', 16), 'Download'),
-      button(h('span', {}, 'Use as reference'), { class: 'ghost small' }, () => {
-        void useAsRef(img.blob!, index)
+    const blob = img.blob
+    actions.append(h('a', { class: 'primary small', href: img.url, download: filename(batch, index, img.format) }, icon('download', 16), 'Download'))
+    if (canReuse(img.format)) {
+      actions.append(button(h('span', {}, 'Use as reference'), { class: 'ghost small' }, () => {
+        void useAsRef(blob, img.format, index)
         closeDialog(viewer)
-      }),
-    )
+      }))
+    }
   }
   const details = h('div', { class: 'viewer-meta' },
     formatBadge(img.format),
@@ -1468,6 +1545,12 @@ const activity = (): void => {
 document.addEventListener('pointerdown', activity, { passive: true })
 document.addEventListener('keydown', activity, { passive: true })
 
+// Phones pause timers in background tabs, so the lock deadline is checked
+// again whenever the tab comes back.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') vault.lockIfExpired()
+})
+
 // Leaving the page wipes the key, so the back button cannot restore it from the
 // back-forward cache on a shared computer.
 window.addEventListener('pagehide', () => {
@@ -1477,6 +1560,7 @@ window.addEventListener('pagehide', () => {
 
 // One clock drives every moving figure: elapsed time, retry countdowns, the lock countdown.
 window.setInterval(() => {
+  vault.lockIfExpired()
   if (vault.hasKey()) renderKeyPill()
   for (const b of batches) {
     if (b.tiles.some((t) => !t.done)) {

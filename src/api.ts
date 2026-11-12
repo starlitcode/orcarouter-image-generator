@@ -157,10 +157,23 @@ const num = (v: unknown): number | null => {
 
 // ---- Gemini ----
 
+// A Gemini batch is several requests carrying the same references, so each
+// file is encoded once and the text reused. Keyed by the Blob, so it is freed
+// with it.
+const encoded = new WeakMap<Blob, Promise<string>>()
+function encodeOnce(blob: Blob): Promise<string> {
+  let p = encoded.get(blob)
+  if (!p) {
+    p = blobToBase64(blob)
+    encoded.set(blob, p)
+  }
+  return p
+}
+
 export async function runGemini(p: GeminiParams, signal: AbortSignal): Promise<Outcome> {
   const parts: unknown[] = []
   for (const ref of p.refs) {
-    parts.push({ inlineData: { mimeType: ref.blob.type || 'image/png', data: await blobToBase64(ref.blob) } })
+    parts.push({ inlineData: { mimeType: ref.blob.type || 'image/png', data: await encodeOnce(ref.blob) } })
   }
   parts.push({ text: p.prompt.slice(0, MAX_PROMPT) })
 
@@ -286,16 +299,21 @@ export async function withRetry(
   const first = await run()
   if (first.ok || first.error.retryAfter === undefined || signal.aborted) return first
   let left = first.error.retryAfter
-  while (left > 0) {
-    onWait(left)
-    const stopped = await new Promise<boolean>((resolve) => {
-      const t = window.setTimeout(() => resolve(false), 1000)
-      signal.addEventListener('abort', () => {
+  const tick = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      const onAbort = (): void => {
         window.clearTimeout(t)
         resolve(true)
-      }, { once: true })
+      }
+      const t = window.setTimeout(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(false)
+      }, 1000)
+      signal.addEventListener('abort', onAbort, { once: true })
     })
-    if (stopped) return { ok: false, error: plainError('Canceled', 'You stopped this request.', false) }
+  while (left > 0) {
+    onWait(left)
+    if (await tick()) return { ok: false, error: plainError('Canceled', 'You stopped this request.', false) }
     left--
   }
   onWait(0)

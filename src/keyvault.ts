@@ -75,6 +75,12 @@ export function setIdleMinutes(minutes: number): void {
 
 export const getIdleMinutes = (): number => idleMinutes
 
+// The lock timer can fire late when a phone has paused the tab, so this checks
+// the deadline itself.
+export function lockIfExpired(): void {
+  if (apiKey !== null && lockAt && Date.now() >= lockAt) lock()
+}
+
 // Milliseconds until the key locks itself, or 0 when it never will.
 export const msUntilLock = (): number => (lockAt ? Math.max(0, lockAt - Date.now()) : 0)
 

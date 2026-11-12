@@ -33,7 +33,7 @@ export function clear(el: Element): void {
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 // Icons are drawn from path data here, so no inline SVG markup is parsed.
-const ICONS: Record<string, string[]> = {
+const ICONS = {
   key: ['M15.5 7.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z', 'M12 11v10', 'M12 16h3', 'M12 19h2'],
   lock: ['M6 11h12v10H6z', 'M8.5 11V8a3.5 3.5 0 0 1 7 0v3'],
   sun: ['M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z', 'M12 2v2', 'M12 20v2', 'M4.9 4.9l1.4 1.4', 'M17.7 17.7l1.4 1.4', 'M2 12h2', 'M20 12h2', 'M4.9 19.1l1.4-1.4', 'M17.7 6.3l1.4-1.4'],
@@ -48,11 +48,12 @@ const ICONS: Record<string, string[]> = {
   eyeOff: ['M3 3l18 18', 'M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3 3.9', 'M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.9 9.9 0 0 0 5.4-1.6', 'M9.9 9.9a3 3 0 0 0 4.2 4.2'],
   image: ['M4 5h16v14H4z', 'M4 16l5-5 4 4 2-2 5 5', 'M15.5 9.5h.01'],
   trash: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13'],
-  stop: ['M7 7h10v10H7z'],
   warn: ['M12 3l10 18H2L12 3Z', 'M12 10v4', 'M12 17.5h.01'],
-}
+} as const satisfies Record<string, readonly string[]>
 
-export function icon(name: keyof typeof ICONS, size = 18): SVGSVGElement {
+export type IconName = keyof typeof ICONS
+
+export function icon(name: IconName, size = 18): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg')
   svg.setAttribute('viewBox', '0 0 24 24')
   svg.setAttribute('width', String(size))
@@ -64,12 +65,10 @@ export function icon(name: keyof typeof ICONS, size = 18): SVGSVGElement {
   svg.setAttribute('stroke-linejoin', 'round')
   svg.setAttribute('aria-hidden', 'true')
   svg.setAttribute('focusable', 'false')
-  for (const d of ICONS[name] ?? []) {
+  for (const d of ICONS[name]) {
     const path = document.createElementNS(SVG_NS, 'path')
     path.setAttribute('d', d)
     svg.append(path)
   }
   return svg
 }
-
-export type IconName = keyof typeof ICONS

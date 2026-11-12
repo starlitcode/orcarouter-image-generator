@@ -212,10 +212,21 @@ async function enterKey(page, raw = `  ${KEY}  `) {
   await page.locator('.resolution .seg', { hasText: '4K' }).click()
   check((await page.locator('.size-readout').textContent()).includes('3840x2160'), '16:9 at 4K computes 3840x2160')
   await page.locator('.resolution .seg', { hasText: 'Custom' }).click()
-  await page.locator('#custom-size').fill('1080x1920')
+  check((await page.locator('#custom-w').getAttribute('inputmode')) === 'numeric' && (await page.locator('.size-row .times').textContent()) === 'x', 'custom size is two number fields with the x drawn between them')
+  check((await page.locator('.ratio-chip[data-ratio="auto"]').count()) === 0, 'Custom mode leaves out the Auto shape')
+  await page.getByRole('radio', { name: 'Aspect ratio 16:9' }).click()
+  check((await page.locator('#custom-w').inputValue()) === '1824' && (await page.locator('#custom-h').inputValue()) === '1024', 'tapping a shape in Custom fills in its 1K size')
+  check((await page.getByRole('radio', { name: 'Aspect ratio 16:9' }).getAttribute('aria-checked')) === 'true', 'the shape matching the typed size is marked')
+  // A whole size pasted into one field is split across both.
+  await page.locator('#custom-w').fill('1080x1920')
+  check((await page.locator('#custom-w').inputValue()) === '1080' && (await page.locator('#custom-h').inputValue()) === '1920', 'a pasted 1080x1920 is split into width and height')
   check((await page.locator('#custom-size-errors').textContent()).includes('multiples of 16'), 'invalid custom size explains the 16px rule')
+  check((await page.getByRole('radio', { name: 'Aspect ratio 16:9' }).getAttribute('aria-checked')) === 'false', 'no shape is marked for a size that matches none exactly')
   check((await page.locator('#generate').getAttribute('aria-disabled')) === 'true', 'invalid size blocks Generate')
-  await page.locator('#custom-size').fill('1152x2048')
+  await page.locator('#custom-w').pressSequentially('x', { delay: 10 })
+  check((await page.locator('#custom-w').inputValue()) === '1080', 'letters typed into a size field are dropped')
+  await page.locator('#custom-w').fill('1152')
+  await page.locator('#custom-h').fill('2048')
   check((await page.locator('#generate').getAttribute('aria-disabled')) === 'false', 'valid custom size unblocks Generate')
 
   // References: two uploads, one of them large enough to be scaled down.
@@ -371,6 +382,48 @@ async function enterKey(page, raw = `  ${KEY}  `) {
   await ctx.close()
 }
 
+// ---------- 5b. Partial GPT batch: retry keeps the images that came back ----------
+{
+  const { ctx, page, errors } = await newPage()
+  const ns = []
+  mock(page, ({ body }) => {
+    const n = JSON.parse(body.toString()).n
+    ns.push(n)
+    return gptOk(ns.length === 1 ? n - 1 : n)
+  })
+  await page.goto(BASE)
+  await page.getByRole('radio', { name: /GPT Image 2.5 Flare/ }).click()
+  await page.locator('.seg', { hasText: /^3$/ }).click()
+  await page.locator('#prompt').fill('three of them')
+  await page.locator('#generate').click()
+  await enterKey(page)
+  await page.locator('.tile-error').waitFor()
+  const before = await page.locator('.tile-open img').evaluateAll((els) => els.map((e) => e.src))
+  check(before.length === 2 && (await page.locator('.err-title').textContent()) === 'Fewer images came back', 'a short GPT answer fills 2 tiles and marks the third')
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await page.locator('.tile-frame.done').nth(2).waitFor()
+  const after = await page.locator('.tile-open img').evaluateAll((els) => els.map((e) => e.src))
+  check(ns[1] === 1, `the retry asks only for the missing image (n=${ns[1]})`)
+  check(after.length === 3 && before.every((src) => after.includes(src)), 'the two images that came back are kept')
+  check(errors.length === 0, `no console errors (${errors.join(' | ')})`)
+  await ctx.close()
+}
+
+// ---------- 5c. A phone that paused the tab still locks on time ----------
+{
+  const { ctx, page } = await newPage()
+  await page.clock.install()
+  await page.goto(BASE)
+  await page.locator('#key-pill').click()
+  await enterKey(page)
+  // setSystemTime moves the clock without running timers, like a frozen background tab.
+  await page.clock.setSystemTime(Date.now() + 16 * 60_000)
+  check((await page.locator('#key-pill').textContent()).includes('Key active'), 'frozen timer has not locked yet')
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  check((await page.locator('#key-pill').textContent()).includes('Add API key'), 'coming back to the tab after the deadline locks the key')
+  await ctx.close()
+}
+
 // ---------- 6. Layout on phones and in light mode ----------
 for (const [label, opts] of [
   ['phone-320', { viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true }],
@@ -409,6 +462,11 @@ for (const [label, opts] of [
   check(label === 'tablet' || Math.abs(bar.y + bar.height - vh) < 2, `${label}: Generate bar sits at the bottom of the screen`)
   await page.screenshot({ path: join(out, `${label}.png`) })
   if (label === 'iphone') {
+    await page.locator('#key-pill').tap()
+    await page.waitForTimeout(200)
+    check(await page.evaluate(() => document.activeElement?.tagName !== 'INPUT'), 'on a phone the key dialog opens without focusing a field, so no keyboard')
+    await page.getByRole('button', { name: 'Cancel' }).tap()
+    await page.locator('#key-dialog').waitFor({ state: 'hidden' })
     await page.locator('#prompt').fill('Neon koi pond, top down')
     await page.locator('#generate').tap()
     await enterKey(page)

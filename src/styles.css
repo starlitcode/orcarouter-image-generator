@@ -797,6 +797,24 @@ kbd {
   background: var(--accent-soft);
 }
 
+.size-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.size-row .input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.times {
+  flex: none;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
 .size-readout .strong {
   color: var(--text);
   font-weight: 600;
