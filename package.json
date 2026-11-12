@@ -1,0 +1,25 @@
+{
+  "name": "orcarouter-image-generator",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Browser-only image generator for OrcaRouter: Gemini 3.1 Flash Image and GPT Image 2.5.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/unit/*.test.ts",
+    "test:e2e": "npm run build && node tests/e2e/run.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@fontsource-variable/bricolage-grotesque": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}
